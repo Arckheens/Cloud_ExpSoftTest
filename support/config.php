@@ -27,4 +27,13 @@ return [
         'DTV Player',
         'Autre',
     ],
+
+    // Catégories du forum : identifiant => [nom, description].
+    // 'staff' => true : seul ExpSoft (connecté en admin) peut y ouvrir un sujet ; tout le monde peut répondre.
+    'forum_categories' => [
+        'annonces'  => ['name' => 'Annonces', 'description' => 'Nouveautés et mises à jour des logiciels ExpSoft.', 'staff' => true],
+        'questions' => ['name' => 'Questions & aide', 'description' => 'Une question sur un logiciel ? Posez-la ici.'],
+        'idees'     => ['name' => 'Idées & suggestions', 'description' => 'Proposez des améliorations ou de nouvelles fonctions.'],
+        'general'   => ['name' => 'Discussion générale', 'description' => 'Tout le reste.'],
+    ],
 ];

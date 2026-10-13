@@ -206,6 +206,63 @@ function require_admin(): void
 }
 
 // ---------------------------------------------------------------------------
+// Forum
+// ---------------------------------------------------------------------------
+
+const FORUM_MAX_MESSAGE = 2000;
+
+function is_admin(): bool
+{
+    return !empty($_SESSION['admin']);
+}
+
+function find_topic(array $forum, int $id): int
+{
+    foreach ($forum['topics'] ?? [] as $i => $t) {
+        if ($t['id'] === $id) {
+            return $i;
+        }
+    }
+    fail('Sujet introuvable', 404);
+}
+
+function topic_summary(array $t): array
+{
+    $last = end($t['posts']);
+    return [
+        'id' => $t['id'], 'category' => $t['category'], 'title' => $t['title'],
+        'author' => $t['posts'][0]['author'], 'staff' => $t['posts'][0]['staff'],
+        'created' => $t['created'], 'updated' => $t['updated'],
+        'pinned' => $t['pinned'], 'locked' => $t['locked'],
+        'replies' => count($t['posts']) - 1,
+        'last_author' => $last['author'], 'last_staff' => $last['staff'],
+    ];
+}
+
+// Auteur d'un message : l'admin connecté peut poster en tant qu'ExpSoft.
+function forum_author(array $in): array
+{
+    if (is_admin() && !empty($in['as_staff'])) {
+        return ['ExpSoft', true];
+    }
+    $author = text($in, 'author', 40);
+    if (preg_match('/^\s*expsoft\b/i', $author)) {
+        fail('Ce pseudo est réservé.');
+    }
+    return [$author, false];
+}
+
+function forum_spam_check(array $in): void
+{
+    if (($in['website'] ?? '') !== '') {
+        fail('Requête refusée');
+    }
+    if (!is_admin()) {
+        rate_limit('forum', 10, 3600);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Requête
 // ---------------------------------------------------------------------------
 
@@ -359,6 +416,90 @@ switch ($action) {
         notify("Contact : $subject", "De : $name <$mail>\n\n$message");
         respond([]);
 
+    // ----- Forum public ----------------------------------------------------
+
+    case 'forum_list':
+        $forum = with_lock(false, fn () => db_load('forum'));
+        $categories = [];
+        foreach ($config['forum_categories'] as $slug => $c) {
+            $categories[] = [
+                'slug' => $slug, 'name' => $c['name'], 'description' => $c['description'] ?? '',
+                'staff' => !empty($c['staff']),
+            ];
+        }
+        respond([
+            'categories' => $categories,
+            'topics'     => array_map('topic_summary', $forum['topics'] ?? []),
+            'admin'      => is_admin(),
+        ]);
+
+    case 'forum_topic':
+        $id = (int) ($in['id'] ?? 0);
+        $topic = with_lock(false, function () use ($id) {
+            $forum = db_load('forum');
+            return $forum['topics'][find_topic($forum, $id)];
+        });
+        respond(['topic' => $topic, 'admin' => is_admin()]);
+
+    case 'forum_new_topic':
+        $category = (string) ($in['category'] ?? '');
+        $cat = $config['forum_categories'][$category] ?? fail('Catégorie inconnue');
+        if (!empty($cat['staff']) && !is_admin()) {
+            fail('Seul ExpSoft peut ouvrir un sujet dans cette catégorie.', 403);
+        }
+        [$author, $staff] = forum_author($in);
+        $title = text($in, 'title', 120);
+        $message = text($in, 'message', FORUM_MAX_MESSAGE);
+        forum_spam_check($in);
+        $topic = with_lock(true, function () use ($category, $title, $author, $staff, $message) {
+            $forum = db_load('forum');
+            $forum['seq'] = ($forum['seq'] ?? 0) + 1;
+            $topic = [
+                'id'       => $forum['seq'],
+                'category' => $category,
+                'title'    => $title,
+                'created'  => now(),
+                'updated'  => now(),
+                'pinned'   => false,
+                'locked'   => false,
+                'posts'    => [[
+                    'id' => bin2hex(random_bytes(6)), 'author' => $author, 'staff' => $staff,
+                    'at' => now(), 'text' => $message,
+                ]],
+            ];
+            $forum['topics'][] = $topic;
+            db_save('forum', $forum);
+            return $topic;
+        });
+        if (!$staff) {
+            notify("Forum : nouveau sujet « $title »", "Par : $author\nCatégorie : $category\n\n$message");
+        }
+        respond(['topic' => $topic]);
+
+    case 'forum_reply':
+        $id = (int) ($in['id'] ?? 0);
+        [$author, $staff] = forum_author($in);
+        $message = text($in, 'message', FORUM_MAX_MESSAGE);
+        forum_spam_check($in);
+        $topic = with_lock(true, function () use ($id, $author, $staff, $message) {
+            $forum = db_load('forum');
+            $i = find_topic($forum, $id);
+            if ($forum['topics'][$i]['locked'] && !$staff) {
+                fail('Ce sujet est verrouillé.');
+            }
+            $forum['topics'][$i]['posts'][] = [
+                'id' => bin2hex(random_bytes(6)), 'author' => $author, 'staff' => $staff,
+                'at' => now(), 'text' => $message,
+            ];
+            $forum['topics'][$i]['updated'] = now();
+            db_save('forum', $forum);
+            return $forum['topics'][$i];
+        });
+        if (!$staff) {
+            notify("Forum : réponse sur « {$topic['title']} »", "Par : $author\n\n$message");
+        }
+        respond(['topic' => $topic]);
+
     // ----- Côté admin ------------------------------------------------------
 
     case 'admin_status':
@@ -466,11 +607,49 @@ switch ($action) {
         });
         respond([]);
 
+    case 'admin_forum_topic':
+        $id = (int) ($in['id'] ?? 0);
+        $op = (string) ($in['op'] ?? '');
+        $result = with_lock(true, function () use ($id, $op) {
+            $forum = db_load('forum');
+            $i = find_topic($forum, $id);
+            switch ($op) {
+                case 'pin':    $forum['topics'][$i]['pinned'] = !$forum['topics'][$i]['pinned']; break;
+                case 'lock':   $forum['topics'][$i]['locked'] = !$forum['topics'][$i]['locked']; break;
+                case 'delete': array_splice($forum['topics'], $i, 1); break;
+                default: fail('Opération inconnue');
+            }
+            db_save('forum', $forum);
+            return $op === 'delete' ? null : $forum['topics'][$i];
+        });
+        respond(['topic' => $result]);
+
+    case 'admin_forum_delete_post':
+        $id = (int) ($in['id'] ?? 0);
+        $postId = text($in, 'post', 20);
+        $topic = with_lock(true, function () use ($id, $postId) {
+            $forum = db_load('forum');
+            $i = find_topic($forum, $id);
+            $posts = $forum['topics'][$i]['posts'];
+            $index = array_search($postId, array_column($posts, 'id'), true);
+            if ($index === false) {
+                fail('Message introuvable', 404);
+            }
+            if ($index === 0) {
+                fail('C\'est le premier message : supprime plutôt le sujet entier.');
+            }
+            array_splice($forum['topics'][$i]['posts'], $index, 1);
+            db_save('forum', $forum);
+            return $forum['topics'][$i];
+        });
+        respond(['topic' => $topic]);
+
     case 'admin_export':
         $backup = with_lock(false, fn () => [
             'exported' => now(),
             'tickets'  => db_load('tickets'),
             'contacts' => db_load('contacts'),
+            'forum'    => db_load('forum'),
             'meta'     => db_load('meta'),
         ]);
         respond(['backup' => $backup]);
