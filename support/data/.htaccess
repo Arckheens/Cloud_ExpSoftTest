@@ -1,0 +1,5 @@
+# Double protection : interdit tout accès web direct au dossier des données (Apache).
+Require all denied
+<IfModule !mod_authz_core.c>
+  Deny from all
+</IfModule>

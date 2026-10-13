@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Support ExpSoft</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%277%27 fill=%27%232563eb%27/%3E%3Ctext x=%2716%27 y=%2722%27 font-size=%2716%27 font-family=%27Arial%27 font-weight=%27bold%27 fill=%27white%27 text-anchor=%27middle%27%3EES%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <header class="top">
+    <h1>ExpSoft <span>Support</span></h1>
+    <button type="button" id="contact-btn" class="secondary">Contacter ExpSoft</button>
+  </header>
+
+  <main>
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" id="tab-new" aria-controls="panel-new" aria-selected="true">Signaler un incident</button>
+      <button type="button" role="tab" id="tab-track" aria-controls="panel-track" aria-selected="false">Suivre mon ticket</button>
+    </div>
+
+    <!-- Nouveau ticket -->
+    <section id="panel-new" role="tabpanel" aria-labelledby="tab-new">
+      <form id="new-form" class="card">
+        <h2>Signaler un incident</h2>
+        <p class="muted small">Décrivez votre problème le plus précisément possible : ce que vous faisiez, ce qui s'est passé, le message d'erreur éventuel.</p>
+        <div class="row">
+          <div>
+            <label for="n-name">Nom</label>
+            <input id="n-name" name="name" required maxlength="100" autocomplete="name">
+          </div>
+          <div>
+            <label for="n-email">E-mail</label>
+            <input id="n-email" name="email" type="email" required maxlength="200" autocomplete="email">
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label for="n-software">Logiciel concerné</label>
+            <select id="n-software" name="software" required></select>
+          </div>
+          <div>
+            <label for="n-severity">Gravité</label>
+            <select id="n-severity" name="severity" required>
+              <option value="basse">Basse — gêne mineure</option>
+              <option value="normale" selected>Normale — un problème à corriger</option>
+              <option value="haute">Haute — fonction importante cassée</option>
+              <option value="bloquante">Bloquante — impossible de travailler</option>
+            </select>
+          </div>
+        </div>
+        <label for="n-subject">Résumé du problème</label>
+        <input id="n-subject" name="subject" required maxlength="150" placeholder="Ex. : plantage à l'ouverture d'un projet">
+        <label for="n-message">Description détaillée</label>
+        <textarea id="n-message" name="message" required maxlength="10000"></textarea>
+        <div class="hp" aria-hidden="true"><input name="website" tabindex="-1" autocomplete="off"></div>
+        <div id="new-feedback"></div>
+        <div class="actions"><button type="submit">Envoyer le ticket</button></div>
+      </form>
+
+      <div id="new-result" class="card" hidden>
+        <h2>Ticket enregistré ✔</h2>
+        <p>Conservez ces informations : elles vous permettent de suivre votre ticket et de répondre au support.</p>
+        <div class="credentials">
+          <span>N° de ticket</span><code id="r-id"></code>
+          <span>Code d'accès</span><code id="r-code"></code>
+        </div>
+        <p class="muted small">Ils sont aussi mémorisés dans ce navigateur. Le code ne peut pas être renvoyé : notez-le.</p>
+        <div class="actions">
+          <button type="button" id="r-copy" class="secondary">Copier</button>
+          <button type="button" id="r-open">Voir mon ticket</button>
+          <button type="button" id="r-another" class="secondary">Nouveau ticket</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Suivi d'un ticket -->
+    <section id="panel-track" role="tabpanel" aria-labelledby="tab-track" hidden>
+      <form id="track-form" class="card">
+        <h2>Suivre mon ticket</h2>
+        <div class="row">
+          <div>
+            <label for="t-id">N° de ticket</label>
+            <input id="t-id" name="id" required placeholder="EXP-2026-0001" autocapitalize="characters">
+          </div>
+          <div>
+            <label for="t-code">Code d'accès</label>
+            <input id="t-code" name="code" required autocapitalize="characters" autocomplete="off">
+          </div>
+        </div>
+        <div id="track-feedback"></div>
+        <div class="actions"><button type="submit">Afficher</button></div>
+        <div id="saved" hidden>
+          <p class="muted small" style="margin: 16px 0 0">Tickets mémorisés dans ce navigateur :</p>
+          <ul class="saved-list" id="saved-list"></ul>
+        </div>
+      </form>
+
+      <div id="ticket-view"></div>
+    </section>
+  </main>
+
+  <script src="assets/common.js"></script>
+  <script src="assets/client.js"></script>
+</body>
+</html>

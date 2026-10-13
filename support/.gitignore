@@ -1,0 +1,4 @@
+# Données réelles du support : à sauvegarder avec le site, mais pas dans Git.
+data/*.db.php
+data/*.tmp
+data/.lock
