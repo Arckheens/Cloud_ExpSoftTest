@@ -1,18 +1,23 @@
 # NCM: The LLM Killer?
 
-**Étude + cahier des charges — banc d'essai local NCM & HybridAgent**
-ExpSoft · Nicolas Riquier · octobre 2026
+**Étude + cahier des charges — IA locale ExpSoft**
+ExpSoft · Nicolas Riquier · octobre 2026 · **version 2**
 
-> **Question posée :** est-ce que ça marche, et peut-on déjà utiliser ces modèles en local
-> sur une machine **16 Go de VRAM + 64 Go de RAM** ?
+> **Questions posées :** NCM et HybridAgent, ça marche ? Peut-on les utiliser en local sur une machine
+> **16 Go de VRAM + 64 Go de RAM** ? Peut-on en faire une app pour discuter, avec la vision et le code ?
 >
-> **Réponse courte :**
-> - **NCM** : oui, ça tourne sans problème sur ta machine (modèles minuscules), mais **ce n'est pas
->   (encore) un « LLM killer »** : ce sont des prototypes de recherche spécialisés (histoires courtes,
->   résumés, traduction, Sudoku), pas un assistant utilisable. On parle d'un concept prometteur, pas d'un produit.
-> - **HybridAgent** : c'est la partie **vraiment utilisable** (agent 8B/14B basé sur Qwen3 qui
->   « pense » en latent et agit en texte). Il tient sur 16 Go de VRAM **à condition de le quantifier
->   en 4 bits** (petite modification du code fourni). Pas compatible Ollama / LM Studio / llama.cpp.
+> **Réponses courtes :**
+> - **NCM** n'est **pas (encore) un « LLM killer »**. C'est une nouvelle **façon d'écrire** du texte, très rapide,
+>   mais les modèles publiés sont minuscules et ne savent faire qu'une chose chacun. Ils ne sont **pas intelligents**
+>   au sens d'un assistant. Ils tournent sur ta machine, comme démo.
+> - **HybridAgent 14B** tourne sur 16 Go en 4 bits, mais c'est un **résolveur de questions spécialisé**
+>   (maths, culture + Wikipédia + calculs Python), **pas un assistant de discussion** : pas de chat, pas de vision,
+>   pas de développement de code.
+> - **Pour une app où l'on discute, avec vision et code**, il faut des **modèles généralistes classiques**
+>   (`.gguf`) servis par **llama.cpp**. C'est l'objet du cahier des charges (section 7).
+>
+> **Historique :** v1, étude NCM / HybridAgent et banc d'essai. v2, clarifications (intelligence de NCM,
+> limites de HybridAgent, Bonsai et Strata) et nouveau CDC : application de chat IA locale.
 
 ---
 
@@ -23,17 +28,17 @@ ExpSoft · Nicolas Riquier · octobre 2026
 | [NCM, arXiv 2610.14162](https://arxiv.org/abs/2610.14162) | Article Hazy Research (Stanford), 9 oct. 2026 | Résumé via moteur de recherche (arXiv bloqué depuis mon environnement) |
 | [HazyResearch/ncm](https://github.com/HazyResearch/ncm) | Code + liens vers les modèles | **Code lu et analysé** |
 | [Hybrid Reasoning Agents, arXiv 2610.18861](https://arxiv.org/abs/2610.18861) | Article Stanford + Together AI | Résumé via moteur de recherche |
-| [togethercomputer/HybridAgent](https://github.com/togethercomputer/HybridAgent) | Code + liens vers les modèles | **Code lu et analysé** |
+| [togethercomputer/HybridAgent](https://github.com/togethercomputer/HybridAgent) | Code + liens vers les modèles | **Code lu et analysé** (y compris le prompt système et les outils) |
 | [Coconut, arXiv 2412.06769](https://arxiv.org/abs/2412.06769) | Meta FAIR, 2024 : raisonner dans l'espace latent | Connaissance préalable |
 | [Google Research — speculative decoding](https://research.google/blog/looking-back-at-speculative-decoding/) | Rétrospective sur le décodage spéculatif | Connaissance préalable (site bloqué) |
-| [OpenAI — reasoning guide](https://developers.openai.com/api/docs/guides/reasoning) | Les « reasoning tokens » des modèles o-series / GPT-5 | Connaissance préalable |
+| [OpenAI — reasoning guide](https://developers.openai.com/api/docs/guides/reasoning) | Les « reasoning tokens » | Connaissance préalable |
+| Bonsai (PrismML) et Strata | Modèles 1 bit / moteur local pour un gros modèle MoE | Articles et blogs (pas de doc officielle lue) |
 | Annonce de Jiaru Zou / réponse de Peter Barnett (X) | Discussion autour de HybridAgent | Non accessible (X bloqué) |
 
 ⚠️ **Limites de cette étude** : depuis l'environnement cloud, arxiv.org, huggingface.co et x.com
-étaient injoignables. Les chiffres de performance viennent **des auteurs eux-mêmes**
-(README, graphiques du dépôt, résumés relayés) et **n'ont pas été reproduits**. Je n'ai pas pu
-télécharger les poids ni lancer les modèles (pas de GPU dans le conteneur). Ce qui est affirmé sur la
-taille des modèles et la façon de les charger vient en revanche de **la lecture directe du code**.
+étaient injoignables. Les chiffres de performance viennent **des auteurs eux-mêmes** et **n'ont pas été reproduits**.
+Aucun modèle n'a été lancé (pas de GPU dans le conteneur). Ce qui est dit sur la taille des modèles,
+leur chargement et leur format de réponse vient en revanche de **la lecture directe du code**.
 
 ---
 
@@ -41,17 +46,15 @@ taille des modèles et la façon de les charger vient en revanche de **la lectur
 
 Un LLM classique (GPT, Llama, Qwen, Claude…) est **autorégressif** : il produit **un token à la fois**,
 et chaque token demande un passage complet dans le réseau. 1 000 tokens = 1 000 passages.
-Les modèles « qui réfléchissent » (OpenAI o-series, DeepSeek-R1, Qwen3 thinking…) aggravent le problème :
-ils écrivent des milliers de **tokens de raisonnement** avant de répondre, tokens qui sont facturés
-et qui prennent du temps (c'est le sujet du guide *reasoning* d'OpenAI).
-
-Trois familles de solutions, que tes liens couvrent :
+Les modèles « qui réfléchissent » aggravent le problème : ils écrivent des milliers de **tokens de raisonnement**
+avant de répondre (c'est le sujet du guide *reasoning* d'OpenAI).
 
 | Approche | Idée | Exemple |
 |---|---|---|
-| **Décodage spéculatif** | Un petit modèle devine plusieurs tokens, le gros les valide d'un coup. Même résultat, 2–3× plus rapide. | Rétrospective Google ; déjà dans vLLM, llama.cpp, etc. |
-| **Génération parallèle** | Ne plus générer de gauche à droite : produire tout le texte en quelques étapes. | Modèles de diffusion (MDLM, LLaDA…), et **NCM** |
+| **Décodage spéculatif** | Un petit modèle devine plusieurs tokens, le gros les valide d'un coup. Même résultat, 2–3× plus rapide. | Rétrospective Google ; déjà dans llama.cpp, vLLM, LM Studio |
+| **Génération parallèle** | Ne plus écrire de gauche à droite : produire tout le texte en quelques étapes. | Modèles de diffusion, et **NCM** |
 | **Raisonnement latent** | Réfléchir avec des vecteurs internes plutôt qu'avec des mots écrits. | **Coconut** (Meta), puis **HybridAgent** |
+| **Compression extrême** | Stocker chaque poids sur 1 bit au lieu de 16 : modèles minuscules et rapides. | **Bonsai** (PrismML) |
 
 ---
 
@@ -61,57 +64,61 @@ Trois familles de solutions, que tes liens couvrent :
 
 ![Comparaison NTP / diffusion / NCM](https://raw.githubusercontent.com/HazyResearch/ncm/main/assets/overview.png)
 
-1. Un **tokenizer VQ multi-échelle** (un VQ-VAE) compresse une phrase en une **hiérarchie de codes** :
-   niveau 1 = 1 code qui résume tout le texte (« l'idée »), niveau 2 = quelques codes, … dernier niveau = un code par token.
+1. Un **tokenizer VQ multi-échelle** compresse une phrase en une **hiérarchie de codes** :
+   niveau 1 = 1 code qui résume tout le texte (« l'idée »), … dernier niveau = un code par token.
 2. Un transformer prédit cette hiérarchie **du grossier au fin**. **Toutes les positions d'un niveau sont prédites
-   en parallèle** → il faut **un passage par niveau**, soit 9 à 31 passages selon les modèles publiés,
-   au lieu d'un passage par token.
+   en parallèle** → **un passage par niveau** (9 à 31 selon les modèles publiés), au lieu d'un par token.
 3. Le dernier niveau est décodé en texte.
-
-C'est l'équivalent pour le texte de ce que fait VAR (*next-scale prediction*) pour les images :
-on esquisse, puis on affine. D'où le nom « next-**concept** » : le modèle pose d'abord le sens, puis les mots.
 
 ### 3.2 Résultats annoncés par les auteurs
 
 ![Qualité vs temps](https://raw.githubusercontent.com/HazyResearch/ncm/main/assets/quality_speed.png)
 
 - **LM1B** : meilleure perplexité générative que les modèles de diffusion, **21× plus rapide** que la meilleure diffusion.
-- **XSum** (résumé) : ROUGE-L ≈ 28, au niveau des meilleurs modèles de diffusion, **31× plus rapide**.
+- **XSum** (résumé) : au niveau des meilleurs modèles de diffusion, **31× plus rapide**.
 - **Sudoku difficile** : **86,1 %** de grilles résolues en 12 passages, contre 1 % pour un modèle autorégressif
   en 128 passages, 58 % pour la meilleure diffusion « classique » (DUO) et 81 % pour le meilleur concurrent (FMLM+, 16 passages).
 - Entraînement annoncé sur **4–5× moins de tokens** que les modèles de diffusion comparés.
 
 ### 3.3 Ce qui est réellement publié (vérifié dans le code)
 
-| Modèle | Couches × largeur | Paramètres (estimés) | Longueur max | Usage |
+| Modèle | Paramètres (estimés) | Longueur max | Ce qu'il sait faire | Ce qu'il ne sait pas faire |
 |---|---|---|---|---|
-| Sudoku easy/medium/hard | 8 × 512 | ~25 M | 81 cases | Résoudre des Sudoku |
-| TinyStories | 12 × 768 | ~85 M | 128 tokens | Petites histoires pour enfants |
-| XSum | 12 × 768 | ~85 M | 48 tokens de résumé | Résumé d'articles BBC |
-| WMT14 De→En | 12 × 768 | ~85 M | 64 tokens | Traduction allemand → anglais |
-| LM1B small / medium / large | 12×768 / 24×1024 / 36×1280 | ~85 M / ~300 M / **~700 M** | 128 tokens | Phrases isolées (tokenizer BERT, minuscules) |
-| OpenWebText | 16 × 1024 | ~200 M | 1 024 tokens | Texte web générique |
+| Sudoku easy/medium/hard | ~25 M | 81 cases | Résoudre un Sudoku (très bien) | Rien d'autre |
+| TinyStories | ~85 M | 128 tokens | Inventer une histoire courte pour enfant | Répondre à une question |
+| XSum | ~85 M | 48 tokens | Résumer un article de la BBC en une phrase | Résumer autre chose correctement |
+| WMT14 De→En | ~85 M | 64 tokens | Traduire une phrase courte allemand → anglais | Traduire vers le français |
+| LM1B small / medium / large | ~85 M / ~300 M / **~700 M** | 128 tokens | Produire des phrases plausibles au hasard | Avoir un sens suivi |
+| OpenWebText | ~200 M | 1 024 tokens | Produire du texte web générique | Suivre une consigne |
 
-(Estimation : 12 × couches × largeur², hors embeddings.)
+(Estimation : 12 × couches × largeur², hors embeddings, d'après les fichiers de configuration du dépôt.)
 
-### 3.4 Alors, « LLM killer » ?
+### 3.4 NCM est-il intelligent ?
+
+**Non, pas les modèles publiés.** Il faut séparer deux choses :
+
+- **Le « comment »** : la façon dont le modèle écrit. C'est là que NCM innove : esquisse, puis affinage, très vite.
+- **Le « quoi »** : ce que le modèle sait et comprend. Ça dépend de **sa taille** et de **la quantité de textes**
+  vus à l'entraînement, puis d'un apprentissage à suivre des consignes.
+
+> **Image :** NCM est un **nouveau type de moteur** testé sur un **kart**. Le moteur est prometteur, plus rapide
+> que les moteurs concurrents testés sur le même kart. Mais ce n'est pas une voiture. Un assistant comme Claude
+> ou ChatGPT, c'est la voiture : environ 1 000 fois plus gros que le plus grand NCM, entraîné sur une bonne partie
+> d'internet. Personne n'a encore monté ce moteur dans une voiture.
+
+### 3.5 Alors, « LLM killer » ?
 
 **Non, pas aujourd'hui. Peut-être un jour.**
 
-- ✅ **L'idée est solide et élégante** : quelques passages au lieu de milliers, et un vrai gain de raisonnement
-  sur des problèmes à contraintes globales (Sudoku) où la génération gauche → droite échoue.
-- ❌ **La comparaison est faite contre les modèles de diffusion**, pas contre des LLM autorégressifs de même taille
-  sur le texte libre. Or les modèles de diffusion de cette taille sont eux-mêmes en retrait par rapport aux
-  autorégressifs : battre la diffusion ne veut pas dire battre les LLM.
-- ❌ **Échelle minuscule** : le plus gros modèle fait ~0,7 milliard de paramètres. Les LLM actuels font de 8 à des
-  centaines de milliards. Personne ne sait encore si NCM garde son avantage à grande échelle.
-- ❌ **Longueur fixe et courte** (48 à 1 024 tokens) : pas de conversation, pas de long document, pas de code.
-- ❌ **Aucun modèle chat / instruction**, aucune intégration (transformers, vLLM, Ollama…).
-  Le dépôt ne contient qu'un script d'**évaluation** des benchmarks du papier.
+- ✅ **Idée solide et élégante** : quelques passages au lieu de milliers, et un vrai gain sur les problèmes
+  à contraintes globales (Sudoku) où l'écriture gauche → droite échoue.
+- ❌ **Comparé aux modèles de diffusion**, pas à des LLM autorégressifs de même taille sur le texte libre.
+  Or la diffusion est elle-même en retrait : battre la diffusion ne veut pas dire battre les LLM.
+- ❌ **Échelle minuscule** (≤ 0,7 milliard de paramètres) : on ne sait pas si l'avantage tient à grande échelle.
+- ❌ **Longueur fixe et courte**, **aucun modèle chat**, **aucune intégration** (llama.cpp, Ollama…).
 
-> **Verdict NCM** : un résultat de recherche à suivre de très près, qui peut devenir une brique majeure
-> si quelqu'un l'entraîne à l'échelle d'un vrai LLM. Pour ExpSoft aujourd'hui : **objet d'expérimentation et de
-> veille**, pas un moteur à intégrer dans un logiciel.
+> **Verdict NCM** : à suivre de très près. Il deviendra intéressant pour ExpSoft le jour où un laboratoire
+> publiera un NCM de plusieurs milliards de paramètres capable de suivre des consignes.
 
 ---
 
@@ -119,171 +126,201 @@ on esquisse, puis on affine. D'où le nom « next-**concept** » : le modèle po
 
 ### 4.1 Le principe
 
-- Base : **Qwen3-8B** ou **Qwen3-14B**.
-- Un petit module, **HybridLink** (≈ 34 M de paramètres pour le 8B, deux couches linéaires + normalisations),
-  renvoie le **dernier état caché** du modèle directement en **entrée** du pas suivant, au lieu de passer par un mot.
-  C'est l'idée de **Coconut** (Meta, 2024), industrialisée.
-- Le modèle **alterne de lui-même** : il ouvre un bloc `<latent>` pour réfléchir « en silence » (4 à 200 pas par défaut),
-  puis revient au **texte** pour appeler des outils (**Python**, **recherche web Tavily**) et répondre.
-- Entraînement en deux temps : **HybridSFT** (apprendre le mode latent) puis **HybridRL** (apprendre *quand* l'utiliser).
-- Les pensées latentes peuvent être **relues en pseudo-texte** (module *Interpretable Latent Mode*, rapport HTML).
+- Base : **Qwen3-8B** ou **Qwen3-14B** (versions *Base*, ré-entraînées).
+- Un petit module, **HybridLink** (≈ 34 M de paramètres pour le 8B), renvoie le **dernier état caché** du modèle
+  directement en **entrée** du pas suivant, au lieu de passer par un mot. C'est l'idée de **Coconut**, industrialisée.
+- Le modèle **alterne de lui-même** : bloc `<latent>` pour réfléchir « en silence », puis retour au **texte**
+  pour appeler ses outils et répondre.
+- Entraînement : **HybridSFT** (apprendre le mode latent) puis **HybridRL** (apprendre *quand* l'utiliser).
+- Les pensées latentes peuvent être **relues en pseudo-texte** (rapport HTML).
 
 ### 4.2 Résultats annoncés
 
-Sur 11 benchmarks et trois tailles de modèles, d'après le résumé de l'article :
-**+10,4 %** de performance moyenne par rapport à des agents de pointe,
+Sur 11 benchmarks : **+10,4 %** de performance moyenne par rapport à des agents de pointe,
 **35–55 % de tokens en moins**, **1,8–2,6× plus rapide**, **2,7–3,7× moins cher**.
 
-### 4.3 La question de la transparence
+### 4.3 Ce qu'il sait faire, et ne sait pas faire (vérifié dans le code)
 
-La critique récurrente (dont, vraisemblablement, la réponse de Peter Barnett, que je n'ai pas pu lire) :
-**un raisonnement en vecteurs ne se lit plus**. Aujourd'hui, on peut surveiller ce qu'un modèle « pense » en lisant
-sa chaîne de raisonnement. Avec un raisonnement latent, ce contrôle disparaît en partie. La lecture en pseudo-texte
-proposée par les auteurs est une **approximation**, pas une garantie. Pour un usage pro, c'est un vrai sujet.
+| Question | Réponse | Détail |
+|---|---|---|
+| **Discuter (chat)** | ❌ Pas vraiment | Entraîné pour un seul format : une question → réflexion, recherche, calcul → une **réponse finale encadrée** (`\boxed{29}`). Pas de conversation suivie ni de rédaction. |
+| **Intelligent ?** | ✅ Sur son domaine | Questions de culture, maths et logique. Exemples fournis : « combien de minutes met la lumière du Soleil à la Terre ? », « combien de zéros à la fin de 100! ? » |
+| **Outils** | Recherche **Wikipédia** + Python | Le Python sert de **calculatrice**, pas à développer des programmes. |
+| **Vision (images)** | ❌ Non | Qwen3 ne lit que du texte. |
+| **Coder** | ❌ Pas pour développer | Voir ci-dessus. |
+| **Windows** | ⚠️ Via WSL seulement | Son outil Python utilise un module propre à Linux (`resource`). |
+| **llama.cpp / Ollama / LM Studio** | ❌ | La boucle « pensée latente » n'existe pas dans ces moteurs. |
+
+### 4.4 La question de la transparence
+
+**Un raisonnement en vecteurs ne se lit plus.** On perd en partie la possibilité de surveiller ce que
+le modèle « pense ». La lecture en pseudo-texte proposée par les auteurs est une **approximation**.
+
+> **Verdict HybridAgent** : excellent **objet de laboratoire** pour tester le raisonnement latent,
+> mauvais choix comme assistant de tous les jours.
 
 ---
 
-## 5. Faisabilité sur ta machine (16 Go VRAM / 64 Go RAM)
+## 5. Bonsai et Strata : d'autres pistes, pas des compléments de NCM
 
-| | NCM | HybridAgent-8B | HybridAgent-14B |
-|---|---|---|---|
-| Taille des poids (bf16) | < 1,5 Go | **~16,4 Go** | **~29,5 Go** |
-| Tient en VRAM tel quel ? | ✅ Oui, largement | ❌ Non (le code charge tout en bf16 sur le GPU) | ❌ Non |
-| En 8 bits | — | ✅ ~9 Go | ❌ ~16 Go, trop juste |
-| En 4 bits (NF4) | — | ✅ ~6 Go | ✅ **~9–10 Go** |
-| Déchargement en RAM (64 Go) | — | ✅ Fonctionne, mais lent | ✅ Fonctionne, très lent |
-| Ollama / LM Studio / llama.cpp | ❌ | ❌ (boucle latente non supportée) | ❌ |
-| Système | Linux idéal ; Windows probable (PyTorch pur) | Linux idéal ; Windows possible (PyTorch cu128 + bitsandbytes) | idem |
-| Clé API nécessaire | Non | Tavily pour la recherche web (sinon outil désactivé) | idem |
-| Utilité concrète | Démo / recherche | **Agent de raisonnement maths + recherche** | idem, meilleur |
+On ne peut **pas** combiner NCM avec Bonsai ou Strata. Ce sont trois choses de nature différente :
 
-**Ce qu'il faut modifier pour HybridAgent** : le chargeur (`hybrid_agent/model.py`) appelle
-`AutoModelForCausalLM.from_pretrained(..., dtype=bfloat16)` puis `model.to(device)`.
-Il faut lui passer une configuration 4 bits et ne plus déplacer le modèle à la main :
+| | C'est quoi | Image |
+|---|---|---|
+| **NCM** | Une **façon de construire** un modèle | Un nouveau type de **moteur** |
+| **Bonsai** (PrismML, mars 2026) | Des **modèles entraînés directement en 1 bit** : un 8B pèse **1,15 Go** au lieu de 16 Go. Formats GGUF et MLX, licence Apache 2.0 | Une **voiture ultra-légère** |
+| **Strata** | Un **logiciel pour faire tourner** un modèle précis, Qwen3.8-Flash-Next (125B, MoE), sur un PC de joueur (≥ 12 Go VRAM, ≥ 32 Go RAM annoncés) | Un **garage** spécialisé |
 
-```python
-from transformers import AutoModelForCausalLM, BitsAndBytesConfig
+**Pourquoi « NCM + Bonsai » ne marche pas :** l'intelligence d'un modèle est dans ses poids, appris pour écrire
+**mot par mot**. Pour un « NCM intelligent », il faut **entraîner un nouveau modèle de zéro** sur des milliers de
+milliards de mots : un projet de laboratoire à plusieurs millions d'euros. Un NCM entraîné en 1 bit serait un
+jour une combinaison très intéressante, mais elle doit venir de la recherche.
 
-bnb = BitsAndBytesConfig(
-    load_in_4bit=True,
-    bnb_4bit_quant_type="nf4",
-    bnb_4bit_compute_dtype=torch.bfloat16,
-)
-backbone = AutoModelForCausalLM.from_pretrained(
-    local, quantization_config=bnb, device_map={"": 0}
-)
-# HybridLink reste en bf16 et doit être envoyé sur le GPU séparément.
+**Utilisables sur ta machine dès maintenant :**
+- **Bonsai 8B** : intelligent, très léger et rapide. Retours : bon en discussion, plus faible en code complexe,
+  quelques erreurs factuelles. **À vérifier** : compatibilité avec le llama.cpp officiel.
+- **Strata + Qwen3.8-Flash-Next 125B** : beaucoup plus intelligent, ta machine dépasse les minimums annoncés.
+  Projet très jeune, sources secondaires uniquement : **à tester avec prudence**.
+- Aucune trace d'un « Bonsai 2 » dans les sources trouvées.
+
+---
+
+## 6. Faisabilité sur ta machine (16 Go VRAM / 64 Go RAM)
+
+| | Taille en 4 bits | Tient en VRAM ? | Chat | Vision | Code | llama.cpp |
+|---|---|---|---|---|---|---|
+| NCM (modèles publiés) | < 1,5 Go (bf16) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| HybridAgent-14B | ~9–10 Go (patch requis) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Bonsai 8B (1 bit) | 1,15 Go | ✅ | ✅ | ❌ | ⚠️ moyen | ⚠️ à vérifier |
+| Qwen3.8-Flash-Next 125B via Strata | — | VRAM + RAM | ✅ | ? | ? | ❌ (Strata) |
+| **Généraliste instruct ~14B** (ex. Qwen3-14B) | ~9 Go | ✅ | ✅ | ❌ | ✅ | ✅ |
+| **Vision-langage ~8–12B** (ex. Gemma 3 12B, Qwen-VL 7–8B) | ~7–8 Go | ✅ | ✅ | ✅ | ⚠️ | ✅ |
+| **Code** (ex. Qwen3-Coder-30B-A3B, Qwen2.5-Coder-14B) | ~18 Go / ~9 Go | VRAM + RAM / ✅ | ✅ | ❌ | ✅✅ | ✅ |
+
+Les modèles cités en exemple sont des familles éprouvées. **La sélection finale se fera au lot L0**,
+parmi les modèles les plus récents et les mieux notés au moment du projet.
+
+**Niveau d'intelligence attendu :** un bon 14B local est un assistant **correct et utile** (discuter, résumer,
+expliquer, aider à coder), nettement en dessous des grands modèles en ligne (Claude, ChatGPT) sur les tâches
+complexes. En échange : **gratuit, privé, hors ligne**.
+
+---
+
+## 7. Cahier des charges — « ExpSoft Local AI »
+
+### 7.1 Objectif
+
+Créer une **application de chat IA 100 % locale** (« ton propre ChatGPT ExpSoft ») qui :
+1. permet de **discuter** avec des modèles d'IA tournant **sur le PC**, sans internet ni abonnement ;
+2. gère la **vision** (glisser une image dans la conversation) et l'**aide au code** ;
+3. permet de **choisir le modèle** selon la tâche (généraliste, vision, code) ;
+4. intègre un **onglet Labo** pour tester les technologies de recherche (HybridAgent, Bonsai, NCM, Strata) ;
+5. sert de **socle** pour intégrer plus tard l'IA dans les logiciels ExpSoft.
+
+### 7.2 Architecture
+
+```
+┌────────────────────────────┐      ┌──────────────────────────┐      ┌───────────────────┐
+│ Interface web locale        │ ⇄   │ Backend Python (FastAPI) │ ⇄   │ llama-server       │
+│ HTML5 + JS (même style que  │ HTTP │ conversations, modèles,  │ API  │ (llama.cpp, CUDA)  │
+│ le support ExpSoft)         │      │ téléchargements, labo    │ type │ + fichiers .gguf   │
+└────────────────────────────┘      └──────────────────────────┘ OpenAI└───────────────────┘
 ```
 
-**Risque à mesurer** : la boucle latente réinjecte les états cachés pas après pas. L'erreur due à la
-quantification peut s'y accumuler. Personne n'a publié de mesure là-dessus : c'est justement ce que le banc
-d'essai ci-dessous doit vérifier.
+- **Moteur : `llama-server`** (llama.cpp officiel). Versions Windows CUDA prêtes à l'emploi, API compatible OpenAI,
+  vision par fichier `mmproj`, décodage spéculatif intégré. On évite de compiler `llama-cpp-python` avec CUDA
+  sous Windows, souvent laborieux.
+- **Backend : Python + FastAPI.** Il démarre et arrête `llama-server`, change de modèle, enregistre les conversations
+  et télécharge les modèles depuis Hugging Face.
+- **Interface : HTML5 + JS**, ouverte dans le navigateur ou dans une fenêtre d'app (`pywebview`).
+- **Données en fichiers JSON** dans le dossier de l'app (conversations, réglages) : **portable et zippable**,
+  même principe que le support ExpSoft.
 
----
+### 7.3 Environnement cible
 
-## 6. Cahier des charges — Banc d'essai local « NCM / HybridAgent »
+- **PC** : GPU NVIDIA **16 Go de VRAM**, **64 Go de RAM**, ≥ 100 Go de disque libre pour les modèles.
+- **OS** : **Windows 10/11 (à confirmer)** pour l'app principale. **WSL2** uniquement pour le Labo HybridAgent.
+- **Python 3.11+**, pilotes NVIDIA récents, **llama.cpp** (build CUDA).
 
-### 6.1 Objectif
-
-Disposer sur le poste de développement ExpSoft d'un **banc d'essai reproductible** permettant de :
-1. faire tourner les modèles NCM publiés et **constater** leur vitesse et leurs limites ;
-2. faire tourner **HybridAgent-8B et 14B en 4 bits** sur 16 Go de VRAM ;
-3. **mesurer** si la quantification dégrade le raisonnement latent ;
-4. décider, chiffres à l'appui, si une de ces technologies mérite d'être intégrée dans un logiciel ExpSoft.
-
-### 6.2 Périmètre
-
-| Inclus | Exclu |
-|---|---|
-| Inférence locale (pas d'entraînement) | Ré-entraînement HybridSFT / HybridRL (32 GPU requis) |
-| NCM : TinyStories, XSum, WMT14, Sudoku, LM1B, OWT | Entraîner un NCM à grande échelle |
-| HybridAgent 8B et 14B, quantifiés 4 bits et 8 bits | Déploiement serveur / multi-utilisateur |
-| Outil Python **en bac à sable**, recherche web optionnelle | Intégration dans un produit (phase suivante) |
-| Comparaison avec un Qwen3-8B/14B « normal » (Ollama ou transformers) | |
-
-### 6.3 Environnement cible
-
-- **GPU** : 16 Go de VRAM (NVIDIA, CUDA 12.8). **RAM** : 64 Go. **Disque** : ≥ 80 Go libres
-  (poids 8B + 14B + modèles de comparaison + datasets).
-- **OS** : Linux (Ubuntu 24.04) recommandé, ou **WSL2** sous Windows. Windows natif en option, à valider.
-- **Python 3.11**, `torch==2.11.0` (cu128), `transformers` aux versions figées par chaque dépôt,
-  `bitsandbytes` pour la quantification.
-- **Deux environnements séparés** (conda ou venv) : un pour NCM, un pour HybridAgent, leurs dépendances étant différentes.
-
-### 6.4 Exigences fonctionnelles
+### 7.4 Exigences fonctionnelles
 
 | ID | Exigence | Priorité |
 |---|---|---|
-| F1 | Script d'installation unique par projet (création d'environnement, dépendances, téléchargement des poids) | Haute |
-| F2 | NCM : lancer l'évaluation officielle de chaque tâche avec `evaluate.py` sur 1 GPU | Haute |
-| F3 | NCM : petit script de **démo interactive** (TinyStories / traduction), avec affichage niveau par niveau, du grossier au fin | Moyenne |
-| F4 | HybridAgent : chargeur **4 bits / 8 bits / bf16 + déchargement en RAM** sélectionnable par option | Haute |
-| F5 | HybridAgent : exécuter `examples/questions.jsonl` et un jeu maison de 20 questions (maths + recherche) | Haute |
-| F6 | HybridAgent : générer le **rapport HTML** des pensées latentes pour chaque question | Moyenne |
-| F7 | Outil Python exécuté dans un **bac à sable** (conteneur ou utilisateur restreint, sans réseau) | **Haute (sécurité)** |
-| F8 | Recherche web activable/désactivable (clé Tavily dans `.env`, jamais commitée) | Moyenne |
-| F9 | Comparaison avec le même Qwen3 de base en mode « thinking » texte classique, sur les mêmes questions | Haute |
+| F1 | **Chat** avec réponses en direct (texte qui s'affiche au fur et à mesure), bouton Stop | Haute |
+| F2 | **Historique** des conversations : créer, renommer, rechercher, supprimer, exporter (Markdown/JSON) | Haute |
+| F3 | **Affichage riche** : Markdown, tableaux, **blocs de code colorés avec bouton Copier** | Haute |
+| F4 | **Choix du modèle** dans une liste, avec badges (💬 chat, 👁 vision, 💻 code) et VRAM nécessaire | Haute |
+| F5 | **Vision** : glisser-déposer ou coller une image (capture d'écran…), envoyée au modèle s'il a la vision | Haute |
+| F6 | **Gestionnaire de modèles** : catalogue conseillé, téléchargement avec barre de progression, suppression | Haute |
+| F7 | **Profils** : « Assistant », « Développeur », « Rédacteur »… (prompt système + réglages) | Moyenne |
+| F8 | **Réglages** : température, longueur de contexte, couches sur GPU ; préréglages auto selon la VRAM | Moyenne |
+| F9 | **Joindre des fichiers texte/code** (.txt, .md, .py, .cs, .js…) dans la conversation | Moyenne |
+| F10 | **Décodage spéculatif** activable quand un petit modèle compagnon existe | Basse |
+| F11 | **Onglet Labo** : HybridAgent 14B en 4 bits (via WSL), Bonsai, démo NCM (texte de l'esquisse aux mots, Sudoku), Strata en veille | Basse |
+| F12 | **API locale** compatible OpenAI, pour brancher les futurs logiciels ExpSoft | Moyenne |
 
-### 6.5 Mesures à produire
+### 7.5 Exigences non fonctionnelles
 
-| Mesure | NCM | HybridAgent |
-|---|---|---|
-| Temps de génération (s) et tokens/s | ✔ | ✔ |
-| VRAM max utilisée | ✔ | ✔ |
-| Qualité : métriques officielles (ROUGE, BLEU, % Sudoku, perplexité) | ✔ | — |
-| Qualité : % de bonnes réponses (exact match / math-verify) | — | ✔ |
-| Pas latents et tokens texte par question | — | ✔ |
-| Écart de qualité entre bf16 (déchargement en RAM), 8 bits et 4 bits | — | ✔ **(question clé)** |
-| Écart avec Qwen3 « thinking » classique (temps, tokens, justesse) | — | ✔ |
+| ID | Exigence |
+|---|---|
+| N1 | **100 % hors ligne** après téléchargement des modèles. Aucune donnée envoyée à l'extérieur. |
+| N2 | Le serveur n'écoute **que sur la machine** (`127.0.0.1`), jamais sur le réseau local par défaut. |
+| N3 | Premier mot affiché en **moins de 2 s** sur un modèle déjà chargé (à calibrer au lot L0 selon le GPU). |
+| N4 | L'app reste utilisable si un modèle plante : message clair et relance du moteur. |
+| N5 | Installation guidée pour un non-spécialiste : un installeur ou un script unique, plus un guide pas à pas. |
+| N6 | Code exécuté par un agent du Labo **toujours en bac à sable**, sans accès réseau. |
 
-### 6.6 Lots et planning indicatif
+### 7.6 Lots et planning indicatif
 
 | Lot | Contenu | Durée estimée |
 |---|---|---|
-| L0 | Préparation du poste : pilotes, CUDA, WSL2/Linux, environnements | 0,5 j |
-| L1 | NCM : installation, téléchargement, évaluations officielles, démo niveau par niveau | 1 j |
-| L2 | HybridAgent : patch du chargeur 4/8 bits, bac à sable Python, premiers essais 8B | 1,5 j |
-| L3 | HybridAgent 14B en 4 bits + comparaison bf16 avec déchargement en RAM | 1 j |
-| L4 | Comparaison avec Qwen3 thinking classique | 0,5 j |
-| L5 | Rapport de résultats + recommandation pour ExpSoft | 0,5 j |
-| | **Total** | **≈ 5 jours** |
+| L0 | Poste : pilotes, llama.cpp CUDA, **choix et mesure des modèles** (tokens/s, VRAM, qualité) | 1 j |
+| L1 | Backend FastAPI + pilotage de `llama-server` + chat en direct (F1, F3) | 2 j |
+| L2 | Historique, profils, réglages (F2, F7, F8) | 1,5 j |
+| L3 | Gestionnaire de modèles + changement de modèle (F4, F6) | 1,5 j |
+| L4 | Vision et fichiers joints (F5, F9) | 1 j |
+| L5 | API locale, décodage spéculatif (F10, F12) | 1 j |
+| L6 | Installeur Windows + guide utilisateur (N5) | 1 j |
+| L7 | Onglet Labo : HybridAgent 4 bits (WSL), Bonsai, démo NCM (F11) | 2 j |
+| | **Total** | **≈ 11 jours** (L0 à L6 = version utilisable ; L7 en option) |
 
-### 6.7 Critères d'acceptation
+### 7.7 Critères d'acceptation
 
-- [ ] Les évaluations NCM tournent sur la machine et retrouvent les ordres de grandeur annoncés (± 10 %).
-- [ ] HybridAgent-8B **et** 14B tournent en 4 bits sous 16 Go de VRAM sans erreur de mémoire.
-- [ ] Le tableau qualité / vitesse / VRAM est rempli pour chaque configuration.
-- [ ] L'outil Python ne peut ni accéder au réseau ni écrire hors de son dossier de travail.
-- [ ] Une recommandation claire : « intégrer », « surveiller » ou « abandonner », pour chaque technologie.
+- [ ] On discute avec un modèle ~14B entièrement en VRAM, réponses affichées en direct, sans internet.
+- [ ] On glisse une capture d'écran et le modèle vision la décrit correctement.
+- [ ] Un modèle de code produit et explique un programme ; le code s'affiche coloré et se copie en un clic.
+- [ ] Changer de modèle se fait depuis l'interface, sans redémarrer l'app.
+- [ ] Les conversations survivent à un redémarrage et le dossier de l'app se déplace sans rien casser.
+- [ ] Un logiciel externe peut interroger l'API locale au format OpenAI.
+- [ ] (Labo) HybridAgent-14B tourne en 4 bits sous 16 Go ; l'écart de qualité 4 bits / bf16 est mesuré.
 
-### 6.8 Risques
+### 7.8 Risques
 
 | Risque | Impact | Parade |
 |---|---|---|
-| La quantification 4 bits dégrade fortement la boucle latente | HybridAgent inutilisable en local | Tester 8 bits sur le 8B ; bf16 avec déchargement en RAM comme référence |
-| Versions figées (`transformers 5.13`, `torch 2.11`) incompatibles avec bitsandbytes | Blocage de L2 | Environnement dédié ; ajuster les versions de bitsandbytes |
-| Windows natif mal supporté | Perte de temps | Passer par WSL2 d'emblée |
-| Code exécuté par l'agent (outil Python) dangereux | Sécurité du poste | Bac à sable obligatoire (F7) |
-| NCM ne dépasse jamais le stade de la recherche | Pas d'usage produit | Positionnement « veille », coût limité à 1 jour |
-| Chiffres des auteurs non reproductibles | Mauvaise décision | Mesures maison (6.5) avant toute décision |
+| Modèle choisi trop lent ou trop gros pour la carte | Mauvaise expérience | Mesures au lot L0 ; préréglages selon la VRAM ; versions 8B en secours |
+| Vision non supportée par certains modèles dans llama.cpp | F5 limitée | Choisir des modèles vision dont le `mmproj` est publié et testé |
+| Bonsai incompatible avec le llama.cpp officiel | Pas de Bonsai dans l'app | Le garder dans le Labo avec le moteur fourni par PrismML |
+| HybridAgent dégradé en 4 bits / lourd à installer | Labo limité | Labo optionnel (L7), référence bf16 avec déchargement en RAM |
+| Évolution très rapide des modèles | Catalogue vite dépassé | Catalogue dans un fichier JSON mis à jour sans toucher au code |
+| Code produit par l'IA exécuté sans contrôle | Sécurité du poste | L'app **n'exécute jamais** de code elle-même (sauf Labo, en bac à sable) |
 
-### 6.9 Livrables
+### 7.9 Livrables
 
-1. Scripts d'installation et de lancement (dossier `bench/` de ce dépôt).
-2. Patch de chargement quantifié pour HybridAgent.
-3. Rapport de mesures (tableaux + rapports HTML des pensées latentes).
-4. Note de recommandation pour ExpSoft.
+1. Dossier `app/` : application (backend Python + interface web) et catalogue de modèles.
+2. Installeur ou script d'installation Windows + **guide pas à pas** pour débutant.
+3. Fiche de mesures des modèles retenus (vitesse, VRAM, qualité).
+4. (Option) Dossier `labo/` : HybridAgent 4 bits, Bonsai, démo NCM, avec leur rapport de test.
 
 ---
 
-## 7. Recommandation
+## 8. Recommandation
 
-1. **NCM** : un jour de test pour voir la génération du grossier au fin de ses propres yeux, puis **veille**.
-   À reconsidérer le jour où un NCM de plusieurs milliards de paramètres, de type « instruct », sera publié.
-2. **HybridAgent** : **c'est lui qui mérite le banc d'essai.** Le 14B en 4 bits sur 16 Go est l'option la plus
-   intéressante pour un agent local maths + recherche + Python. Point à trancher : la qualité après quantification.
-3. **À court terme**, pour accélérer un LLM local dès aujourd'hui sans recherche : le **décodage spéculatif**
-   (déjà intégré dans llama.cpp, vLLM, LM Studio) reste le gain le plus sûr et le plus simple.
+1. **Construire « ExpSoft Local AI »** sur llama.cpp avec des modèles généralistes : c'est utile tout de suite
+   et ça sert de socle à l'IA dans les logiciels ExpSoft.
+2. **HybridAgent, Bonsai et NCM vont dans le Labo** : on les teste, on mesure, on surveille.
+3. **NCM** : à reconsidérer le jour où un NCM de plusieurs milliards de paramètres, capable de suivre des consignes,
+   sera publié. Ce jour-là, il pourra être le vrai « LLM killer » de la vitesse.
 
 ---
 
@@ -302,3 +339,8 @@ Disposer sur le poste de développement ExpSoft d'un **banc d'essai reproductibl
 - [Réponse de Peter Barnett](https://x.com/peterbarnett_/status/2110511460116005151) (non consultée)
 - [Does Out-of-Sight Equal Out-of-Mind in CoT Monitorability? — arXiv 2608.04928](https://arxiv.org/pdf/2608.04928)
 - [Monitoring Reasoning Models for Misbehavior — arXiv 2503.11926](https://arxiv.org/pdf/2503.11926)
+- Bonsai : [PrismML — Announcing 1-bit Bonsai](https://prismml.com/news/bonsai-8b) ·
+  [NYU Shanghai](https://rits.shanghai.nyu.edu/ai/prismmls-1-bit-bonsai-llms-8b-model-in-1-15-gb/) ·
+  [getdeploying](https://getdeploying.com/guides/bonsai-1bit-llm)
+- Strata : [SmartScope](https://smartscope.blog/en/blog/strata-local-llm-engine-qwen3-8-flash-next-2026/) ·
+  [Strata vs llama.cpp (RTX 3060)](https://insiderllm.com/pdfs/strata-vs-llama-cpp-rtx-3060.pdf)
